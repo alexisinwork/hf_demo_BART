@@ -1,12 +1,7 @@
-import { InferenceClient } from "@huggingface/inference";
+import { assertToken, client } from "./hfClient.js";
 
-// HF_TOKEN is the documented name (see README). HF_PERSONAL_ACCESS_TOKEN is a
-// fallback so the server also runs in shells that only export the older name.
-const token = process.env.HF_TOKEN ?? process.env.HF_PERSONAL_ACCESS_TOKEN;
-
-const client = new InferenceClient(token);
-
-const MODEL = "facebook/bart-large-cnn";
+const SUMMARY_MODEL = "facebook/bart-large-cnn";
+const CLASSIFIER_MODEL = "distilbert/distilbert-base-uncased-finetuned-sst-2-english";
 
 // bart-large-cnn was fine-tuned on CNN/DailyMail, so news-style prose is what it
 // handles best. Swap this out to summarize something else.
@@ -22,22 +17,38 @@ for later this year, when the telescope will attempt to measure the temperature 
 the forming world and the composition of the gas falling onto it.`;
 
 export async function huggingFaceFunction(text = SAMPLE_ARTICLE) {
-  if (!token) {
-    throw new Error("No Hugging Face token found. Run: export HF_TOKEN=hf_...");
-  }
+  assertToken();
 
   // Collapse line breaks and runs of spaces. Without this the model can fuse the
   // words either side of a newline ("the\nmass" comes back as "themass").
   const inputs = text.replace(/\s+/g, " ").trim();
 
-  const result = await client.summarization({
-    model: MODEL,
-    inputs,
-    parameters: {
-      max_length: 130,
-      min_length: 30,
-    },
-  });
+  // The two calls are independent, so run them together rather than back to back.
+  const [summaryResult, classificationResult] = await Promise.all([
+    client.summarization({
+      model: SUMMARY_MODEL,
+      inputs,
+      parameters: {
+        max_length: 130,
+        min_length: 30,
+      },
+      provider: "hf-inference",
+    }),
 
-  return result.summary_text;
+    client.textClassification({
+      model: CLASSIFIER_MODEL,
+      inputs,
+      provider: "hf-inference",
+    }),
+  ]);
+
+  // textClassification resolves to an ARRAY of { label, score }, best score first:
+  // [{ label: "POSITIVE", score: 0.9989 }, { label: "NEGATIVE", score: 0.0011 }]
+  const [topLabel] = classificationResult;
+
+  return {
+    summary: summaryResult.summary_text,
+    classification: topLabel,
+    allLabels: classificationResult,
+  };
 }
