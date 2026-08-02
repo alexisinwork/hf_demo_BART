@@ -1,0 +1,10 @@
+{
+    "type": "module",
+    "scripts": {
+        "start": "node server.js"
+    },
+    "dependencies": {
+        "@huggingface/inference": "^4.13.15",
+        "express": "^4.21.2"
+    }
+}
